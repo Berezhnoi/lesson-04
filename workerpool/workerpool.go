@@ -5,6 +5,7 @@ package workerpool
 
 import (
 	"context"
+	"sync"
 	"time"
 )
 
@@ -44,7 +45,32 @@ type Result struct {
 // перевіряє ctx.Done() (дивіться приклад slowFetch у тестах).
 func RunPool(jobs <-chan Job, numWorkers int, timeout time.Duration) <-chan Result {
 	results := make(chan Result)
-	// TODO: ваш код тут
-	close(results)
+
+	if numWorkers <= 0 {
+		close(results)
+		return results
+	}
+
+	var wg sync.WaitGroup
+	wg.Add(numWorkers)
+
+	for i := 0; i < numWorkers; i++ {
+		go func() {
+			defer wg.Done()
+			for job := range jobs {
+				ctx, cancel := context.WithTimeout(context.Background(), timeout)
+				size, err := job.Fetch(ctx)
+				cancel()
+
+				results <- Result{JobID: job.ID, Size: size, Err: err}
+			}
+		}()
+	}
+
+	go func() {
+		defer close(results)
+		wg.Wait()
+	}()
+
 	return results
 }
